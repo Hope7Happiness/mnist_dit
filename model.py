@@ -3,6 +3,22 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from functools import partial
+import math
+
+# torch 1.2 compatibility
+
+def silu(x):
+    return x * torch.sigmoid(x)
+
+class SiLU(nn.Module):
+    
+    def forward(self, x):
+        return silu(x)
+    
+class GELU(nn.Module):
+    
+    def forward(self, x):
+        return 0.5 * x * (1 + torch.tanh(torch.sqrt(2 / math.pi) * (x + 0.044715 * x ** 3)))
 
 class Attention(nn.Module):
     
@@ -38,7 +54,7 @@ class MLP(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(dim, dim*4),
-            nn.SiLU(),
+            SiLU(),
             nn.Linear(dim*4, dim)
         )
         
@@ -74,7 +90,7 @@ class Block(nn.Module):
         assert L == self.seq_len, x.shape
         assert D == self.channels, x.shape
         assert cond.shape == (B, D), cond.shape
-        s1, b1, g1, s2, b2, g2 = self.cond_mlp(F.silu(cond)).chunk(6, dim=-1)
+        s1, b1, g1, s2, b2, g2 = self.cond_mlp(silu(cond)).chunk(6, dim=-1)
         
         x = x + g1.unsqueeze(1) * self.attn(modulate(self.ln1(x), scale=s1, bias=b1))
         x = x + g2.unsqueeze(1) * self.mlp(modulate(self.ln2(x), scale=s2, bias=b2))
@@ -86,10 +102,10 @@ class TimeEmbed(nn.Module):
         # sinous pos embed
         super().__init__()
         assert dim % 2 == 0, dim
-        self.register_buffer('angles', max_l ** (- torch.arange(0, dim, 2) / dim))
+        self.register_buffer('angles', max_l ** (- torch.arange(0, dim, 2, dtype=torch.float32) / dim))
         self.mlp = nn.Sequential(
             nn.Linear(dim, dim),
-            nn.SiLU(),
+            SiLU(),
             nn.Linear(dim, dim)
         )
     
@@ -97,7 +113,7 @@ class TimeEmbed(nn.Module):
         assert t.dtype != torch.float32, 't should be int'
         assert t.ndim == 1
         B = t.shape[0]
-        emb = torch.einsum('i, b -> bi', self.angles, t.float())
+        emb = torch.einsum('i, b -> bi', self.angles.to(t.device), t.float())
         emb = torch.cat([torch.sin(emb), torch.cos(emb)], axis=-1)
         return self.mlp(emb)
 
@@ -147,9 +163,14 @@ class DiT(nn.Module):
         # final layernorm
         self.final_ln = nn.LayerNorm(channels, elementwise_affine=False)
         self.final_mod = nn.Linear(channels, channels * 2)
+        self.final_proj = nn.Linear(channels, self.seq_dim)
         
         # init params
         nn.init.xavier_normal_(self.x_embed.weight)
+        self.final_mod.weight.data.zero_()
+        self.final_mod.bias.data.zero_()
+        self.final_proj.weight.data.zero_()
+        self.final_proj.bias.data.zero_()
     
     def patchify(self, x):
         B, C, H, W = x.shape
@@ -168,6 +189,8 @@ class DiT(nn.Module):
     
     def forward(self, x, y=None, t=None):
         x = self.patchify(x)
+        
+        x = self.x_embed(x)
         yemb = self.y_embed(y)
         temb = self.t_embed(t)
         cond = yemb + temb
@@ -176,6 +199,7 @@ class DiT(nn.Module):
         # final layernorm
         s, b = self.final_mod(cond).chunk(2, dim=-1)
         x = modulate(self.final_ln(x), scale=s, bias=b)
+        x = self.final_proj(x)
         return self.unpatchify(x)
     
 DiT_base = DiT # 7M params
@@ -187,19 +211,19 @@ DiT_debug = partial(
     patch_size=2,
     num_classes=10,
     num_layers=1,
-    channels=4,
+    channels=6,
     num_heads=2
 )
     
 if __name__ == '__main__':
-    model = DiT()
-    print('num of model parameters:', sum(p.numel() for p in model.parameters()))
+    # model = DiT()
+    # print('num of model parameters:', sum(p.numel() for p in model.parameters()))
 
-    # model = DiT_debug()
-    # fake_x = torch.randn(7,1,6,6)
-    # fake_y = torch.randint(0,10,(7,))
-    # fake_t = torch.randint(0,1000,(7,))
-    # out = model(fake_x, y=fake_y, t=fake_t)
-    # assert out.shape == fake_x.shape
-    # print('success!')
+    model = DiT_debug()
+    fake_x = torch.randn(7,1,6,6)
+    fake_y = torch.randint(0,10,(7,))
+    fake_t = torch.randint(0,1000,(7,))
+    out = model(fake_x, y=fake_y, t=fake_t)
+    assert out.shape == fake_x.shape
+    print('success!')
     
