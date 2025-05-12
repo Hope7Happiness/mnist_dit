@@ -1,0 +1,1 @@
+rsync -av mitgpu:/nobackup/users/zhh24/dev/dit/*.png ./images/
