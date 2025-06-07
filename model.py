@@ -1,6 +1,16 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
+
+# torch 1.2 capability
+class SiLU(nn.Module):
+    def forward(self, x):
+        return x * F.sigmoid(x)
+    
+class GELU(nn.Module):
+    def forward(self, x):
+        return 0.5 * x * (1 + torch.tanh(torch.sqrt(torch.tensor(2 / math.pi)) * (x + 0.044715 * torch.pow(x, 3))))
 
 class DiT(nn.Module):
     
@@ -33,6 +43,15 @@ class DiT(nn.Module):
         self.final_norm = nn.LayerNorm(hidden_dim, elementwise_affine=False)
         self.final_mod = nn.Linear(hidden_dim, hidden_dim * 2)
         self.final_proj = nn.Linear(hidden_dim, self.seq_dim)
+
+        # init weights
+        nn.init.zeros_(self.final_mod.weight)
+        nn.init.zeros_(self.final_mod.bias)
+        nn.init.zeros_(self.final_proj.weight)
+        nn.init.zeros_(self.final_proj.bias)
+
+        self.x_emb.weight.data.normal_(std=0.02)
+        self.x_emb.bias.data.zero_()
 
     def patchify(self, x):
         B, C, H, W = x.shape
@@ -84,6 +103,10 @@ class Block(nn.Module):
 
         self.mod = nn.Linear(dim, dim * 6)
 
+        # init weights
+        nn.init.zeros_(self.mod.weight)
+        nn.init.zeros_(self.mod.bias)
+
     def forward(self, x, cond):
         B, L, D = x.shape
         assert cond.shape == (B, D)
@@ -106,6 +129,13 @@ class Attention(nn.Module):
         self.qkv = nn.Linear(dim, 3*dim)
         self.out_proj = nn.Linear(dim, dim)
 
+        # init weights
+        nn.init.xavier_normal_(self.qkv.weight)
+        nn.init.xavier_normal_(self.out_proj.weight)
+        nn.init.zeros_(self.qkv.bias)
+        nn.init.zeros_(self.out_proj.bias)
+
+
     def forward(self, x):
         B, L, D = x.shape
         q, k, v = self.qkv(x).chunk(3, dim=-1)
@@ -127,9 +157,15 @@ class MLP(nn.Module):
 
         self.net = nn.Sequential(
             nn.Linear(dim, dim * 4),
-            nn.GELU(),
+            GELU(),
             nn.Linear(dim * 4, dim)
         )
+
+        # init weights
+        for l in self.net:
+            if isinstance(l, nn.Linear):
+                nn.init.xavier_normal_(l.weight)
+                nn.init.zeros_(l.bias)
 
     def forward(self, x):
         return self.net(x)
@@ -149,7 +185,7 @@ class TimeEmbedding(nn.Module):
         )
         self.net = nn.Sequential(
             nn.Linear(dim, dim),
-            nn.SiLU(),
+            SiLU(),
             nn.Linear(dim, dim)
         )
 
@@ -167,6 +203,9 @@ class LabelEmbedding(nn.Module):
 
         self.num_classes = num_classes
         self.emb = nn.Embedding(num_embeddings=num_classes, embedding_dim=dim)
+
+        # init weights
+        self.emb.weight.data.normal_(std=0.02)
 
     def forward(self, y):
         assert y.dtype != torch.float32
