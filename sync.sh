@@ -1,0 +1,1 @@
+rsync -av model.py mitgpu:/nobackup/users/zhh24/dev/dit/

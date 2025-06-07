@@ -145,7 +145,7 @@ class TimeEmbedding(nn.Module):
         assert dim % 2 == 0, dim
         self.register_buffer(
             'angles',
-            max_T ** -torch.arange(0, dim, 2) / dim
+            max_T ** -torch.arange(0, dim, 2, dtype=torch.float32) / dim
         )
         self.net = nn.Sequential(
             nn.Linear(dim, dim),
