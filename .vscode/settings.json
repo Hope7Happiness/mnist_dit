@@ -1,0 +1,6 @@
+{
+    "github.copilot.enable": {
+        "*": true,
+        "python": false
+    }
+} // disable Copilot for Python files
