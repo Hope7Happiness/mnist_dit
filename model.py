@@ -79,7 +79,7 @@ class DiT(nn.Module):
         temb = self.t_emb(t)
         yemb = self.y_emb(y)
         assert temb.shape == yemb.shape == (B, D)
-        cond = temb + yemb
+        cond = SiLU()(temb + yemb)
 
         for block in self.blocks:
             x = block(x, cond=cond)
@@ -130,8 +130,8 @@ class Attention(nn.Module):
         self.out_proj = nn.Linear(dim, dim)
 
         # init weights
-        nn.init.xavier_normal_(self.qkv.weight)
-        nn.init.xavier_normal_(self.out_proj.weight)
+        nn.init.normal_(self.qkv.weight, std=0.02)
+        nn.init.normal_(self.out_proj.weight, std=0.02)
         nn.init.zeros_(self.qkv.bias)
         nn.init.zeros_(self.out_proj.bias)
 
