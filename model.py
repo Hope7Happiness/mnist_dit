@@ -37,6 +37,7 @@ class DiT(nn.Module):
         self.x_emb = nn.Linear(self.seq_dim, hidden_dim)
         self.t_emb = TimeEmbedding(hidden_dim)
         self.y_emb = LabelEmbedding(hidden_dim, num_classes)
+        self.pos_emb = nn.Parameter(torch.randn(self.seq_len, hidden_dim) * 0.02)
 
         self.blocks = nn.ModuleList([Block(dim=hidden_dim, num_heads=num_head) for _ in range(num_layers)])
 
@@ -73,7 +74,7 @@ class DiT(nn.Module):
 
     def forward(self, x, t, y):
         x = self.patchify(x)
-        x = self.x_emb(x)
+        x = self.x_emb(x) + self.pos_emb.unsqueeze(0)
 
         B, L, D = x.shape
         temb = self.t_emb(t)
